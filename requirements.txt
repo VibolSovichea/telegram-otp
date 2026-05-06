@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+python-telegram-bot[asyncio]
+redis
+asyncpg
+sqlalchemy[asyncio]
+python-dotenv
+pydantic-settings

@@ -10,7 +10,15 @@ from app.core.token import (
     is_token_expired,
     verify_redis_hmac,
 )
-from app.db.postgres import get_app, log_otp_event, register_app
+from app.db.postgres import (
+    get_account_by_id,
+    get_app,
+    get_quota_limit,
+    get_usage_summary,
+    increment_usage,
+    log_otp_event,
+    register_app,
+)
 from app.db.redis import (
     consume_token,
     get_token_by_session,
@@ -61,7 +69,12 @@ async def register(request: RegisterAppRequest):
 
     app_secret = secrets.token_hex(32)
 
-    success = await register_app(request.app_id, request.app_name, app_secret)
+    success = await register_app(
+        request.app_id,
+        request.app_name,
+        app_secret,
+        account_id=None,  # no account yet — portal registration sets this
+    )
     if not success:
         raise HTTPException(
             status_code=500, detail="Failed to register app. Please try again."
@@ -86,9 +99,29 @@ async def generate_otp(request: GenerateOTPRequest, x_app_secret: str = Header(.
     if not secrets.compare_digest(app["app_secret"], x_app_secret):
         raise HTTPException(status_code=401, detail="Invalid app secret.")
 
+    if app.get("account_id"):
+        app_account = await get_account_by_id(app["account_id"])
+
+        if app_account:
+            quota = await get_quota_limit(app_account["tier"])
+            summary = await get_usage_summary(app_account["id"])
+            total_usage = sum(row["usage"] for row in summary)
+
+            if total_usage >= quota:
+                raise HTTPException(
+                    status_code=429,
+                    detail=(
+                        f"Monthly OTP quota of {quota} has been reached. "
+                        "Please upgrade your plan to continue."
+                    ),
+                )
+
+            await increment_usage(request.app_id, app_account["id"])
+
     token = await store_token(request.session_id, request.app_id)
 
     await log_otp_event(request.session_id, request.app_id, "generated")
+
     deep_link = f"https://t.me/{settings.TELEGRAM_BOT_USERNAME}?start={token}"
 
     return GenerateOTPResponse(

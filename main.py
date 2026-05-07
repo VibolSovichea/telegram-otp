@@ -7,6 +7,7 @@ from app.api.routes import router
 from app.bot.handlers import create_bot_app
 from app.core.config import settings
 from app.db.postgres import init_db
+from app.api.portal import portal_router
 
 bot_app = create_bot_app()
 
@@ -52,6 +53,7 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix="/api/v1")
+app.include_router(portal_router, prefix="/api/v1")
 
 
 @app.get("/health")
